@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Perpetuals — Generative Art Preview</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;700&display=swap');
+  
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    background: #050505;
+    color: #e5e5e5;
+    font-family: 'Geist Mono', 'SF Mono', 'Fira Code', monospace;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  
+  .header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  
+  .header h1 {
+    font-size: 0.75rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #22c55e;
+    margin-bottom: 0.5rem;
+  }
+  
+  .header p {
+    font-size: 0.65rem;
+    color: #555;
+    letter-spacing: 0.1em;
+  }
+  
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 2.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  
+  .piece {
+    background: #0a0a0a;
+    border: 1px solid #1a1a1a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .piece-art {
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #0a0a0a;
+    aspect-ratio: 1;
+  }
+  
+  .piece-art pre {
+    font-family: 'Geist Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 7px;
+    line-height: 8.4px;
+    letter-spacing: 0px;
+    white-space: pre;
+    user-select: all;
+  }
+  
+  .piece-meta {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid #1a1a1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.6rem;
+    color: #555;
+    letter-spacing: 0.05em;
+  }
+  
+  .piece-meta .epoch-label {
+    color: #22c55e;
+    font-weight: 500;
+  }
+  
+  .piece-meta .traits {
+    display: flex;
+    gap: 0.75rem;
+  }
+  
+  .hero-view {
+    max-width: 640px;
+    margin: 0 auto 4rem;
+  }
+  
+  .hero-view .piece-art {
+    padding: 1.5rem;
+  }
+  
+  .hero-view .piece-art pre {
+    font-size: 9.5px;
+    line-height: 11.4px;
+  }
+  
+  .section-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #333;
+    margin-bottom: 1.5rem;
+    text-align: center;
+  }
+  
+  .footer {
+    text-align: center;
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid #1a1a1a;
+    font-size: 0.55rem;
+    color: #333;
+    letter-spacing: 0.1em;
+  }
+  
+  .footer a {
+    color: #22c55e40;
+    text-decoration: none;
+  }
+  .footer a:hover {
+    color: #22c55e;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Perpetuals</h1>
+  <p>Self-perpetuating generative art — 10 epoch preview</p>
+</div>
+
+<div class="hero-view">
+  <div class="piece" id="hero-piece"></div>
+</div>
+
+<p class="section-label">Collection Preview — Epochs 001–010</p>
+
+<div class="gallery" id="gallery"></div>
+
+<div class="footer">
+  <p>Built on <a href="https://rare.xyz">Rare Protocol</a> + <a href="https://bankr.fi">Bankr</a></p>
+  <p style="margin-top: 0.5rem;">
+    <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer">Created with Perplexity Computer</a>
+  </p>
+</div>
+
+<script>
+// ============================================================
+// PERPETUALS — Generative Art Engine v3
+// Deterministic: seed → 48×48 character grid
+// Signature: Ring with center void + background texture
+// ============================================================
+
+const SIZE = 48;
+const CX = SIZE / 2 - 0.5;
+const CY = SIZE / 2 - 0.5;
+const ASPECT = 1.7; // monospace char height/width ratio (tuned for Geist Mono)
+
+function prng(seed) {
+  let s = seed | 0;
+  return function() {
+    s |= 0; s = s + 0x9e3779b9 | 0;
+    let t = s ^ s >>> 16; t = Math.imul(t, 0x21f0aaad);
+    t = t ^ t >>> 15; t = Math.imul(t, 0x735a2d97);
+    return ((t = t ^ t >>> 15) >>> 0) / 4294967296;
+  };
+}
+
+function hashSeed(n, salt) {
+  let h = 2166136261;
+  const s = `${n}:${salt||'perpetuals'}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+// Aspect-corrected distance
+function dist(x, y) {
+  const dx = x - CX;
+  const dy = (y - CY) * ASPECT;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function angle(x, y) {
+  return Math.atan2((y - CY) * ASPECT, x - CX);
+}
+
+// === CHARACTER PALETTES ===
+const PALETTES = [
+  { name: 'dot',
+    sparse: ['·','∙',' ','·',' ','∙'],
+    med:    ['○','◦','◌','∘','○','◦'],
+    dense:  ['●','◉','◈','●','◉','⊛'],
+    ring:   ['●','○','◉','◎','●'],
+    accent: '◆',
+    void:   '·',
+  },
+  { name: 'block',
+    sparse: ['░',' ','░',' ',' ','░'],
+    med:    ['▒','░','▓','░','▒','░'],
+    dense:  ['█','▓','▇','█','▓','▆'],
+    ring:   ['█','▓','▒','░','█'],
+    accent: '█',
+    void:   '░',
+  },
+  { name: 'line',
+    sparse: ['·','─','·','│','·','·'],
+    med:    ['┌','┐','└','┘','├','┤'],
+    dense:  ['┼','╋','╬','┼','╬','╋'],
+    ring:   ['╬','┼','╋','─','│'],
+    accent: '╳',
+    void:   '·',
+  },
+  { name: 'glyph',
+    sparse: ['·','∙','˙',' ','·',' '],
+    med:    ['∆','∇','∴','∵','≈','∘'],
+    dense:  ['⊕','⊗','⊞','⊠','∞','⊘'],
+    ring:   ['⊕','⊗','∞','⊞','⊘'],
+    accent: '∞',
+    void:   '∴',
+  },
+  { name: 'braille',
+    sparse: ['⠁','⠂','⠀','⠄','⠀','⠁'],
+    med:    ['⠇','⠏','⠟','⠃','⠇','⠏'],
+    dense:  ['⣿','⣾','⣽','⣻','⣷','⣯'],
+    ring:   ['⣿','⣾','⣷','⣯','⣿'],
+    accent: '⣿',
+    void:   '⠁',
+  },
+];
+
+// === PATTERN FUNCTIONS (return 0..1) ===
+function pWave(x, y, p) {
+  const v = Math.sin(x/SIZE * Math.PI * p.freq + p.phase) *
+            Math.cos(y/SIZE * Math.PI * p.freq * 0.618 + p.phase * 0.5);
+  return (v + 1) / 2;
+}
+
+function pSpiral(x, y, p) {
+  const a = angle(x, y);
+  const d = dist(x, y);
+  const v = Math.sin(a * p.arms + d * p.tight);
+  return (v + 1) / 2;
+}
+
+function pRipple(x, y, p) {
+  const d = dist(x, y);
+  return (Math.sin(d * p.freq * 0.4) + 1) / 2;
+}
+
+function pNoise(x, y, p) {
+  const n = Math.sin(x * p.scale * 0.27 + y * p.scale * 0.73) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+function pRadial(x, y, p) {
+  const a = angle(x, y);
+  return (Math.sin(a * p.segments) + 1) / 2;
+}
+
+const PATS = [
+  { name: 'wave',   fn: pWave },
+  { name: 'spiral', fn: pSpiral },
+  { name: 'ripple', fn: pRipple },
+  { name: 'noise',  fn: pNoise },
+  { name: 'radial', fn: pRadial },
+];
+
+// === SYMMETRY (operates on a quarter or half) ===
+function applySym(g, c, sym) {
+  const h = Math.floor(SIZE / 2);
+  if (sym === 1) { // vert mirror
+    for (let y = 0; y < SIZE; y++)
+      for (let x = 0; x < h; x++) {
+        g[y][SIZE-1-x] = g[y][x]; c[y][SIZE-1-x] = c[y][x];
+      }
+  } else if (sym === 2) { // horiz mirror
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < SIZE; x++) {
+        g[SIZE-1-y][x] = g[y][x]; c[SIZE-1-y][x] = c[y][x];
+      }
+  } else if (sym === 3) { // quad
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < h; x++) {
+        g[y][SIZE-1-x] = g[y][x]; c[y][SIZE-1-x] = c[y][x];
+        g[SIZE-1-y][x] = g[y][x]; c[SIZE-1-y][x] = c[y][x];
+        g[SIZE-1-y][SIZE-1-x] = g[y][x]; c[SIZE-1-y][SIZE-1-x] = c[y][x];
+      }
+  }
+}
+
+// ============================================================
+// GENERATE
+// ============================================================
+function generate(epochNum, salt) {
+  const seed = hashSeed(epochNum, salt);
+  const rand = prng(seed);
+
+  // Traits
+  const palIdx    = Math.floor(rand() * PALETTES.length);
+  const patIdx    = Math.floor(rand() * PATS.length);
+  const sym       = Math.floor(rand() * 4);
+  const ringR     = 18 + Math.floor(rand() * 5); // 18..22
+  const ringW     = 1.2 + rand() * 1.8;          // ring line width
+  const density   = 0.2 + rand() * 0.4;
+  const accentPct = 0.04 + rand() * 0.08;
+  const border    = Math.floor(rand() * 4);
+  const innerDetail = rand() < 0.5; // whether to put detail inside the ring
+
+  const params = {
+    freq: 3 + rand() * 6,
+    phase: rand() * Math.PI * 2,
+    arms: 2 + Math.floor(rand() * 4),
+    tight: 0.15 + rand() * 0.3,
+    scale: 4 + rand() * 8,
+    segments: 3 + Math.floor(rand() * 6),
+  };
+
+  const pal = PALETTES[palIdx];
+  const pat = PATS[patIdx];
+
+  // Init
+  const g = Array.from({length: SIZE}, () => Array(SIZE).fill(' '));
+  const c = Array.from({length: SIZE}, () => Array(SIZE).fill('bg'));
+
+  // ---- LAYER 1: Background pattern ----
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const d = dist(x, y);
+      
+      // Skip the ring zone (will be drawn on top)
+      if (Math.abs(d - ringR) < ringW + 1.5) continue;
+      // Skip inner void unless innerDetail
+      if (d < ringR - ringW - 1.5 && !innerDetail) continue;
+      // Taper: fade density near ring
+      const nearRing = Math.abs(d - ringR);
+      const taper = nearRing < 5 ? nearRing / 5 : 1;
+      
+      const val = pat.fn(x, y, params);
+      const threshold = density * taper;
+
+      if (val > 1 - threshold * 0.3) {
+        g[y][x] = pal.dense[Math.floor(rand() * pal.dense.length)];
+        c[y][x] = rand() < accentPct * 1.5 ? 'green' : 'white';
+      } else if (val > 1 - threshold * 0.6) {
+        g[y][x] = pal.med[Math.floor(rand() * pal.med.length)];
+        c[y][x] = rand() < accentPct ? 'green' : 'white';
+      } else if (val > 1 - threshold) {
+        g[y][x] = pal.sparse[Math.floor(rand() * pal.sparse.length)];
+        c[y][x] = 'dim';
+      }
+    }
+  }
+
+  // ---- LAYER 2: Apply symmetry to background ----
+  applySym(g, c, sym);
+
+  // ---- LAYER 3: THE RING ----
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const d = dist(x, y);
+      const diff = Math.abs(d - ringR);
+
+      if (diff <= ringW) {
+        const t = 1 - diff / ringW; // 1 at center of ring, 0 at edge
+        if (t > 0.5) {
+          g[y][x] = pal.ring[0];
+          c[y][x] = rand() < 0.2 ? 'green' : 'white';
+        } else if (t > 0.2) {
+          g[y][x] = pal.ring[1];
+          c[y][x] = rand() < 0.1 ? 'green' : 'white';
+        } else {
+          g[y][x] = pal.ring[2];
+          c[y][x] = 'dim';
+        }
+      }
+    }
+  }
+
+  // ---- LAYER 4: Ring accent nodes ----
+  const nAccents = 4 + Math.floor(rand() * 5);
+  const startAngle = rand() * Math.PI * 2;
+  for (let i = 0; i < nAccents; i++) {
+    const a = startAngle + (i / nAccents) * Math.PI * 2;
+    const ax = Math.round(CX + Math.cos(a) * ringR);
+    const ay = Math.round(CY + Math.sin(a) * (ringR / ASPECT));
+    if (ax >= 1 && ax < SIZE-1 && ay >= 1 && ay < SIZE-1) {
+      g[ay][ax] = pal.accent;
+      c[ay][ax] = 'green';
+      // Small tick outward
+      for (let t = 1; t <= 2; t++) {
+        const tx = Math.round(ax + Math.cos(a) * t);
+        const ty = Math.round(ay + Math.sin(a) * (t / ASPECT));
+        if (tx >= 1 && tx < SIZE-1 && ty >= 1 && ty < SIZE-1) {
+          if (g[ty][tx] === ' ') {
+            g[ty][tx] = '·';
+            c[ty][tx] = 'green';
+          }
+        }
+      }
+    }
+  }
+
+  // ---- LAYER 5: Center detail ----
+  // Small concentric structure in the void
+  const innerR = ringR - ringW - 3;
+  if (innerR > 4) {
+    // Small inner ring (much smaller)
+    const smR = 3 + Math.floor(rand() * 3);
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const d = dist(x, y);
+        if (Math.abs(d - smR) < 0.7) {
+          g[y][x] = pal.void;
+          c[y][x] = 'dim';
+        }
+      }
+    }
+  }
+  
+  // Center dot
+  const cyI = Math.round(CY);
+  const cxI = Math.round(CX);
+  g[cyI][cxI] = pal.accent;
+  c[cyI][cxI] = 'green';
+  // Crosshair arms
+  for (let d = 1; d <= 2; d++) {
+    if (cxI - d >= 0) { g[cyI][cxI-d] = '─'; c[cyI][cxI-d] = 'dim'; }
+    if (cxI + d < SIZE) { g[cyI][cxI+d] = '─'; c[cyI][cxI+d] = 'dim'; }
+  }
+  if (cyI - 1 >= 0) { g[cyI-1][cxI] = '│'; c[cyI-1][cxI] = 'dim'; }
+  if (cyI + 1 < SIZE) { g[cyI+1][cxI] = '│'; c[cyI+1][cxI] = 'dim'; }
+
+  // ---- LAYER 6: Border ----
+  if (border > 0) {
+    const ch = border === 2
+      ? { tl:'╔',tr:'╗',bl:'╚',br:'╝',h:'═',v:'║' }
+      : border === 3
+      ? { tl:'·',tr:'·',bl:'·',br:'·',h:'·',v:'·' }
+      : { tl:'┌',tr:'┐',bl:'└',br:'┘',h:'─',v:'│' };
+
+    g[0][0]=ch.tl; g[0][SIZE-1]=ch.tr; g[SIZE-1][0]=ch.bl; g[SIZE-1][SIZE-1]=ch.br;
+    c[0][0]='dim'; c[0][SIZE-1]='dim'; c[SIZE-1][0]='dim'; c[SIZE-1][SIZE-1]='dim';
+    for (let x=1;x<SIZE-1;x++) { g[0][x]=ch.h; c[0][x]='dim'; g[SIZE-1][x]=ch.h; c[SIZE-1][x]='dim'; }
+    for (let y=1;y<SIZE-1;y++) { g[y][0]=ch.v; c[y][0]='dim'; g[y][SIZE-1]=ch.v; c[y][SIZE-1]='dim'; }
+  }
+
+  // ---- LAYER 7: Epoch number ----
+  const lbl = String(epochNum).padStart(3,'0');
+  const lx = Math.floor(CX - lbl.length/2 + 0.5);
+  const ly = SIZE - (border > 0 ? 2 : 1);
+  for (let i = 0; i < lbl.length; i++) {
+    if (lx+i >= 0 && lx+i < SIZE) {
+      g[ly][lx+i] = lbl[i];
+      c[ly][lx+i] = 'green';
+    }
+  }
+
+  return {
+    grid: g, colors: c,
+    traits: {
+      palette: pal.name,
+      pattern: pat.name,
+      symmetry: ['none','vertical','horizontal','quad'][sym],
+      border: ['none','single','double','dotted'][border],
+      ringRadius: ringR,
+    }
+  };
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+const COLORS = { bg:'#0a0a0a', dim:'#2a2a2a', white:'#aaaaaa', green:'#22c55e' };
+
+function html(ep) {
+  const { grid: g, colors: c } = ep;
+  let out = '';
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const ch = g[y][x] === ' ' ? '\u00A0' : g[y][x];
+      out += `<span style="color:${COLORS[c[y][x]]}"> ${ch}</span>`;
+    }
+    out += '\n';
+  }
+  return out;
+}
+
+// ============================================================
+// PAGE
+// ============================================================
+function render() {
+  const h = generate(1, 'perpetuals.art');
+  document.getElementById('hero-piece').innerHTML = `
+    <div class="piece-art"><pre>${html(h)}</pre></div>
+    <div class="piece-meta">
+      <span class="epoch-label">EPOCH 001</span>
+      <div class="traits">
+        <span>${h.traits.palette}</span>
+        <span>${h.traits.pattern}</span>
+        <span>${h.traits.symmetry}</span>
+      </div>
+    </div>`;
+
+  const gal = document.getElementById('gallery');
+  for (let i = 1; i <= 10; i++) {
+    const e = generate(i, 'perpetuals.art');
+    const d = document.createElement('div');
+    d.className = 'piece';
+    d.innerHTML = `
+      <div class="piece-art"><pre>${html(e)}</pre></div>
+      <div class="piece-meta">
+        <span class="epoch-label">EPOCH ${String(i).padStart(3,'0')}</span>
+        <div class="traits">
+          <span>${e.traits.palette}</span>
+          <span>${e.traits.pattern}</span>
+          <span>${e.traits.symmetry}</span>
+        </div>
+      </div>`;
+    gal.appendChild(d);
+  }
+}
+
+render();
+</script>
+</body>
+</html>
